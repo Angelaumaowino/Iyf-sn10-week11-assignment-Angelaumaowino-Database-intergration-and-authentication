@@ -1,0 +1,177 @@
+MongoDB 
+Javascript,js.
+const mongoose = require("mongoose");
+
+const connectDB = async () => {
+  try {
+    await mongoose.connect(process.env.MONGO_URI);
+    console.log("MongoDB Connected");
+  } catch (error) {
+    console.log(error);
+    process.exit(1);
+  }
+};
+
+module.exports = connectDB;
+User model.js.
+const mongoose = require("mongoose");
+
+const userSchema = new mongoose.Schema({
+  username: String,
+  email: String,
+  password: String
+});
+
+module.exports = mongoose.model("User", userSchema);
+POST MODEL.js.
+const mongoose = require("mongoose");
+
+const postSchema = new mongoose.Schema({
+  title: String,
+  content: String,
+  author: String
+}, { timestamps: true });
+
+module.exports = mongoose.model("Post", postSchema);
+COMMENT MODEL.js.
+const mongoose = require("mongoose");
+
+const commentSchema = new mongoose.Schema({
+  text: String,
+  postId: String,
+  user: String
+}, { timestamps: true });
+
+module.exports = mongoose.model("Comment", commentSchema);
+JWT middleware,js.
+const jwt = require("jsonwebtoken");
+
+module.exports = function(req,res,next){
+  const token = req.header("Authorization");
+
+  if(!token){
+    return res.status(401).json({message:"No token"});
+  }
+
+  try{
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  }catch(err){
+    res.status(401).json({message:"Invalid token"});
+  }
+};
+AUTHENTICATION ROUTES.js.
+const express = require("express");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const User = require("../models/User");
+
+const router = express.Router();
+
+router.post("/register", async(req,res)=>{
+  const {username,email,password} = req.body;
+
+  const hashedPassword = await bcrypt.hash(password,10);
+
+  const user = await User.create({
+    username,
+    email,
+    password: hashedPassword
+  });
+
+  res.json(user);
+});
+
+router.post("/login", async(req,res)=>{
+  const {email,password} = req.body;
+
+  const user = await User.findOne({email});
+
+  if(!user) return res.status(400).json({message:"User not found"});
+
+  const match = await bcrypt.compare(password,user.password);
+
+  if(!match) return res.status(400).json({message:"Wrong password"});
+
+  const token = jwt.sign(
+    {id:user._id},
+    process.env.JWT_SECRET,
+    {expiresIn:"7d"}
+  );
+
+  res.json({token});
+});
+
+router.get("/verify", async(req,res)=>{
+  res.json({message:"Auth route works"});
+});
+
+module.exports = router;⁷
+POST ROUTES,js.
+const express = require("express");
+const Post = require("../models/Post");
+const auth = require("../middleware/authMiddleware");
+
+const router = express.Router();
+
+router.post("/", auth, async(req,res)=>{
+  const post = await Post.create(req.body);
+  res.json(post);
+});
+
+router.get("/", async(req,res)=>{
+  const posts = await Post.find();
+  res.json(posts);
+});
+
+router.put("/:id", auth, async(req,res)=>{
+  const post = await Post.findByIdAndUpdate(req.params.id, req.body, {new:true});
+  res.json(post);
+});
+
+router.delete("/:id", auth, async(req,res)=>{
+  await Post.findByIdAndDelete(req.params.id);
+  res.json({message:"Deleted"});
+});
+
+module.exports = router;
+COMENT ROUTES,js.
+const express = require("express");
+const Comment = require("../models/Comment");
+const auth = require("../middleware/authMiddleware");
+
+const router = express.Router();
+
+router.post("/", auth, async(req,res)=>{
+  const comment = await Comment.create(req.body);
+  res.json(comment);
+});
+
+router.get("/", async(req,res)=>{
+  const comments = await Comment.find();
+  res.json(comments);
+});
+
+module.exports = router;
+MAIN SERVER,js.
+const express = require("express");
+const dotenv = require("dotenv");
+const cors = require("cors");
+const connectDB = require("./config/db");
+
+dotenv.config();
+connectDB();
+
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+
+app.use("/api/auth", require("./routes/authRoutes"));
+app.use("/api/posts", require("./routes/postRoutes"));
+app.use("/api/comments", require("./routes/commentRoutes"));
+
+app.listen(process.env.PORT, ()=>{
+  console.log("Server running");
+});
